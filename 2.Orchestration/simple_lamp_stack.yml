@@ -26,6 +26,10 @@ Parameters:
       - t2.medium
       - t2.large
     ConstraintDescription: must be a valid EC2 instance type.
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance.
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
 Mappings:
   AWSInstanceType2Arch:
     t2.small:
@@ -190,7 +194,7 @@ Resources:
     Metadata:
       'AWS::CloudFormation::Init':
         configSets:
-          InstallAndRun:
+          All:
             - Install
         Install:
           packages:
@@ -341,13 +345,44 @@ Resources:
           - !Ref InstanceType
           - Arch
       InstanceType: !Ref InstanceType
-      NetworkInterfaces:
-        - GroupSet:
-          - !Ref WebSubnetSecurityGroup
-          AssociatePublicIpAddress: 'true'
-          DeviceIndex: '0'
-          DeleteOnTermination: 'true'
-          SubnetId: !Ref WebSubnet
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref WebSubnetSecurityGroup
+      SubnetId: !Ref WebSubnet
+      UserData: !Base64 
+        'Fn::Join':
+          - ''
+          - - |
+              #!/bin/bash -xe
+            - |
+              yum install -y aws-cfn-bootstrap
+            - |
+              # Install the files and packages from the metadata
+            - '/opt/aws/bin/cfn-init -v '
+            - '         --stack '
+            - !Ref 'AWS::StackName'
+            - '         --resource WebServerInstance '
+            - '         --configsets All '
+            - '         --region '
+            - !Ref 'AWS::Region'
+            - |+
+
+            - |
+              # Signal the status from cfn-init
+            - '/opt/aws/bin/cfn-signal -e $? '
+            - '         --stack '
+            - !Ref 'AWS::StackName'
+            - '         --resource WebServerInstance '
+            - '         --region '
+            - !Ref 'AWS::Region'
+            - |+
+
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT5M
+    DependsOn:
+      - InetGateway
+      - RDSInstance
 Outputs:
     WebsiteURL:
       Description: URL for our LAMP Stack
